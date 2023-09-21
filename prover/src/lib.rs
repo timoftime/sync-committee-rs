@@ -21,7 +21,7 @@ use crate::{
 	routes::*,
 };
 use primitive_types::H256;
-use ssz_rs::{List, Merkleized, Node, Vector};
+use ssz_rs::{Deserialize, List, Merkleized, Node, Vector};
 use sync_committee_primitives::{
 	constants::{
 		BlsPublicKey, Root, ValidatorIndex, BLOCK_ROOTS_INDEX, BYTES_PER_LOGS_BLOOM,
@@ -170,11 +170,16 @@ impl SyncCommitteeProver {
 		let path = beacon_state_route(state_id);
 		let full_url = self.generate_route(&path);
 
-		let response = self.client.get(full_url).send().await?;
+		let response = self
+			.client
+			.get(full_url)
+			.header("Accept", "application/octet-stream")
+			.send()
+			.await?;
 
-		let response_data = response.json::<responses::beacon_state_response::Response>().await?;
+		let response_ssz = response.bytes().await?;
 
-		let beacon_state = response_data.data;
+		let beacon_state = BeaconState::deserialize(&response_ssz)?;
 
 		Ok(beacon_state)
 	}
@@ -229,7 +234,10 @@ impl SyncCommitteeProver {
 			return Ok(None)
 		}
 
-		debug!(target: debug_target, "A new epoch has been finalized {}", finality_checkpoint.epoch);
+		debug!(
+			target: debug_target,
+			"A new epoch has been finalized {}", finality_checkpoint.epoch
+		);
 		// Find the highest block with the a threshhold number of sync committee signatures
 		let latest_header = self.fetch_header("head").await?;
 		let latest_root = latest_header.clone().hash_tree_root()?;
